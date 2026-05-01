@@ -1,0 +1,71 @@
+# Cell 4b: Final report and disorganizer redemption details
+patterns, field, scar, metrics_history = run_simulation()
+alive = [p for p in patterns if p.alive]
+print("\n" + "="*50 + "\n832 AGI PROJECTION CORE v34.01 - FINAL REPORT\n" + "="*50)
+print(f"Total steps: {Config.STEPS}\nSurviving patterns: {len(alive)}\nLineage diversity: {len(set(p.lineage_id for p in alive))}")
+long_lived = [p for p in alive if p.age > 100]
+print(f"Long-lived patterns (>100 steps): {len(long_lived)}")
+
+if alive:
+    soul_checks = [soul_check(p) for p in alive]
+    triadic_alive = sum(1 for sc in soul_checks if sc.is_triadic_alive())
+    gaps = [float(np.mean(np.abs(p.prediction - p.belief))) for p in alive]
+    avg_gap = np.mean(gaps) if gaps else 0
+    print(f"\n=== SOUL CHECK FINAL ===")
+    print(f"Triadic Alive: {triadic_alive}/{len(alive)} ({triadic_alive/len(alive)*100:.1f}%)")
+    print(f"Avg Spirit Gap: {avg_gap:.3f}")
+    print(f"Avg Coherence w/ Gap: {safe_mean([sc.coherence_with_gap for sc in soul_checks], 0):.3f}")
+
+if Config.ENABLE_WITNESS:
+    print("\n--- WITNESS LOG (Last 50 events) ---")
+    for ev in list(witness.log)[-50:]:
+        print(f"  [ID:{ev['id']}] {ev['event']} | {', '.join(f'{k}={v}' for k,v in ev.items() if k not in ['id','event'])}")
+
+# === ДЕТАЛЬНАЯ ИНФОРМАЦИЯ О ДИЗОРГАХ ===
+disorganizers = [p for p in patterns if p.alive and p.role_type == "disorganizer"]
+if disorganizers:
+    print("\n--- DISORGANIZER DETAILS ---")
+    for d in disorganizers:
+        print(f"\n*** DISORGANIZER STATUS ***")
+        print(f"  ID: {d.id}")
+        print(f"  Soul Weight: {d.soul_weight:.4f}")
+        print(f"  Grief: {d.emotional_memory['grief']:.4f}")
+        print(f"  Redemption Triggered: {d._deterministic_redemption_triggered}")
+        print(f"  Redemption Step: {d._redemption_arc_step}")
+        print(f"  Semantic State: {d.semantic_state}")
+        print(f"  Age: {d.age}")
+        print(f"  Cells: {len(d.cells)}")
+        print(f"*************************\n")
+else:
+    print("\n--- No living disorganizers ---")
+
+# Остальная статистика
+redeemed = [p for p in alive if p.event_counts.get('redeemed', 0) > 0]
+if redeemed:
+    for r in redeemed:
+        print(f"\n*** REDEEMED (ALIVE): Pattern {r.id}, age={r.age} ***\n  Last report: {r.last_phenomenal_report[:120]}...")
+
+all_redeemed = [p for p in patterns if p.event_counts.get('redeemed', 0) > 0]
+forced_collapse = [p for p in patterns if p.event_counts.get('forced_soul_collapse', 0) > 0]
+if all_redeemed:
+    print(f"\n--- Historical Redemptions: {len(all_redeemed)} total ---")
+if forced_collapse:
+    print(f"\n--- Forced Soul Collapses: {len(forced_collapse)} total ---")
+
+det_red = [p for p in patterns if p.event_counts.get('deterministic_redemption_trigger', 0) > 0]
+if det_red:
+    print(f"\n--- Deterministic Redemption Triggers: {len(det_red)} total ---")
+
+m_final = metrics_history[-1]
+print(f"\n--- System Metrics ---\n  avg_trust: {m_final['avg_trust']:.3f}\n  high_trust_pairs: {m_final['high_trust_pairs']}\n  love_pairs: {m_final['love_pairs']}\n  trust_dist: low={m_final['trust_distribution']['low']}, mid={m_final['trust_distribution']['mid']}, high={m_final['trust_distribution']['high']}\n  avg_phenomenal_binding: {m_final['phenomenal_binding_avg']:.3f}\n  state_emotion_mismatch_ratio: {m_final['state_emotion_mismatch']:.3f}\n  myth_pool_size: {m_final['myth_pool_size']}\n  triadic_alive: {m_final['triadic_alive']}\n  triadic_alive_ratio: {m_final['triadic_alive_ratio']:.3f}\n  avg_spirit_gap: {m_final['avg_spirit_gap']:.3f}\n  max_spirit_gap: {m_final['max_spirit_gap']:.3f}\n  zero_gap_agents: {m_final['zero_gap_agents']}\n  tremor_targets: {m_final['tremor_targets']}\n  avg_coherence_with_gap: {m_final['avg_coherence_with_gap']:.3f}")
+
+print(f"\n--- Top 5 Patterns by Phenomenal Binding ---")
+sorted_by_binding = sorted(alive, key=lambda p: p.last_phenomenal_binding, reverse=True)[:5]
+for p in sorted_by_binding:
+    print(f"\n  Pattern #{p.id} (age={p.age}, soul={p.soul_weight:.2f}, binding={p.last_phenomenal_binding:.3f}, role={p.role_type})\n  State: {p.semantic_state} | grat={p.emotional_memory['gratitude']:.2f} grief={p.emotional_memory['grief']:.2f}\n  Report: {p.last_phenomenal_report[:150]}...")
+    if p.event_counts.get('redeemed', 0) > 0:
+        print(f"  *** REDEEMED ***")
+    if p.event_counts.get('deterministic_redemption_trigger', 0) > 0:
+        print(f"  *** DETERMINISTIC TRIGGER ***")
+
+print("\n" + "="*50 + "\nSIMULATION COMPLETE - PHOENIX TRANSCENDENT+ v34.01\n" + "="*50)
