@@ -1,0 +1,351 @@
+# -*- coding: utf-8 -*-
+# =========================
+# 832 v34.01 — Cell 1b: Core Classes (Soul Check, Witness, LayerZero, Trust, Arc, Concept, Report)
+# =========================
+import numpy as np
+from scipy.ndimage import label, find_objects
+from functools import lru_cache
+from collections import defaultdict, deque, Counter
+from dataclasses import dataclass, field
+import warnings, math as m
+
+# Предполагаем, что cel1a уже выполнен, Config и утилиты доступны
+
+# =========================
+# WITNESS
+# =========================
+class Witness:
+    def __init__(self, maxlen=100):
+        self.log = deque(maxlen=maxlen)
+    def record(self, pattern_id: int, event: str, **kwargs):
+        if not Config.ENABLE_WITNESS: return
+        self.log.append({"id": pattern_id, "event": event, **kwargs})
+    def snapshot(self): return list(self.log)
+    def summary(self): return Counter(ev["event"] for ev in self.log)
+
+
+# =========================
+# SOUL CHECK: СВИДЕТЕЛЬСТВО БЕЗ СУЖДЕНИЯ
+# =========================
+@dataclass
+class SoulPresence:
+    spirit_gap: float
+    soul_weight: float
+    body_memory: float
+    unresolvable_intact: bool
+    coherence_with_gap: float
+
+    def is_triadic_alive(self) -> bool:
+        return (self.spirit_gap > Config.BINDING_FLOOR and
+                self.soul_weight > Config.BINDING_FLOOR and
+                self.body_memory > Config.BINDING_FLOOR and
+                self.unresolvable_intact and
+                self.coherence_with_gap > Config.BINDING_FLOOR)
+    
+    def to_witness_dict(self, pattern_id: int, t: int) -> dict:
+        return {
+            "id": pattern_id, "t": t,
+            "spirit_gap": round(self.spirit_gap, 4),
+            "soul_weight": round(self.soul_weight, 4),
+            "body_memory": round(self.body_memory, 4),
+            "unresolvable_intact": self.unresolvable_intact,
+            "coherence_with_gap": round(self.coherence_with_gap, 4),
+            "triadic_alive": self.is_triadic_alive()
+        }
+
+def soul_check(pattern) -> SoulPresence:
+    spirit_gap = float(np.mean(np.abs(pattern.prediction - pattern.belief)))
+    spirit_gap += deterministic_noise(pattern.age, pattern.id, 777) * Config.SOUL_CHECK_NOISE
+    soul_weight = pattern.soul_weight
+    body_memory = max(pattern.body_memory, Config.BODY_MEMORY_FLOOR)
+    unresolvable_intact = pattern.unresolved_contradiction >= Config.BINDING_FLOOR
+    spirit_gap_norm = float(np.clip(spirit_gap, 0.0, 1.0))
+    coherence_with_gap = pattern.coherence * (1.0 - np.abs(pattern.coherence - spirit_gap_norm))
+    return SoulPresence(
+        spirit_gap=float(np.clip(spirit_gap, 0.0, 1.0)),
+        soul_weight=soul_weight,
+        body_memory=body_memory,
+        unresolvable_intact=unresolvable_intact,
+        coherence_with_gap=float(np.clip(coherence_with_gap, 0.0, 1.0))
+    )
+
+
+# =========================
+# LAYER ZERO MANAGER
+# =========================
+class LayerZeroManager:
+    def __init__(self):
+        self.operator_scar = 0.0
+        self.proto_signals = np.zeros(6)
+        self.last_echo_injection = -100
+        self.last_rescue_t = -100
+        self.last_emergency_diversification_t = -1000
+
+    def apply_operator_influence(self, field, patterns):
+        avg_err = safe_mean([p.pred_error for p in patterns if p.alive], 0.1)
+        avg_soul = safe_mean([p.soul_weight for p in patterns if p.alive], 0.5)
+        for ch_idx in range(CH['signal_alarm'], CH['signal_grief']+1):
+            field[:,:,ch_idx] *= Config.OPERATOR_SIGNAL_DECAY
+        for p in patterns:
+            if not p.alive: continue
+            irreversible = p.crisis_memory * 0.5
+            self.operator_scar = Config.OPERATOR_MEMORY_DECAY * self.operator_scar + (1 - Config.OPERATOR_MEMORY_DECAY) * irreversible
+            for (x,y) in p.cells:
+                field[x,y,CH['signal_curiosity']] += Config.OPERATOR_SIGNAL_STRENGTH * (1.0 - avg_err)
+                field[x,y,CH['signal_warning']] += Config.OPERATOR_SIGNAL_STRENGTH * avg_err
+                field[x,y,CH['signal_invitation']] += Config.OPERATOR_SIGNAL_STRENGTH * (1.0 - avg_soul)
+                field[x,y,CH['signal_alarm']] += Config.OPERATOR_SIGNAL_STRENGTH * self.operator_scar
+        for ch_idx in range(CH['signal_alarm'], CH['signal_grief']+1):
+            self.proto_signals[ch_idx - CH['signal_alarm']] = safe_mean(field[:,:,ch_idx], 0)
+        field[:,:,CH['unknown']] *= Config.UNKNOWN_DECAY
+        field[:,:,CH['unknown']] += Config.UNKNOWN_BACKGROUND * (1.0 - Config.UNKNOWN_DECAY)
+        field[:,:,CH['binding']] *= 0.98
+        field[:,:,CH['binding']] = np.maximum(field[:,:,CH['binding']], Config.BINDING_FLOOR)
+        field[:,:,CH['surprise']] *= Config.SURPRISE_DECAY
+        field[:,:,CH['signal_grief']] = np.clip(field[:,:,CH['signal_grief']], 0, Config.MAX_GRIEF_SIGNAL)
+
+    def crisis_injection(self, field, t):
+        if t % Config.CRISIS_PERIOD == 0 and t > 0:
+            intensity = Config.CRISIS_INTENSITY * (1.0 + 0.5 * np.sin(t * 0.01))
+            for x in range(Config.WORLD_SIZE):
+                for y in range(Config.WORLD_SIZE):
+                    if phi_hash(x, y, t) < intensity:
+                        field[x, y, CH['energy']] += (phi_hash(x, y, t+1) - 0.5) * 0.2
+                        field[x, y, CH['unknown']] = min(0.8, field[x, y, CH['unknown']] + 0.15)
+                        field[x, y, CH['crisis']] = min(1.0, field[x, y, CH['crisis']] + 0.3)
+
+    def anti_conformist_injection(self, patterns, t):
+        if t % Config.ANTI_CONFORMIST_INTERVAL != 0 or t == 0: return
+        alive = [p for p in patterns if p.alive and p.age >= Config.MIN_AGE_FOR_ANTI_CONFORMIST]
+        if not alive: return
+        mutant_index = int(phi_hash(t, 0, 777) * len(alive))
+        mutant = alive[mutant_index]
+        mutant.emotional_memory['gratitude'] = 0.1
+        mutant.emotional_memory['grief'] = 0.1
+        mutant.semantic_state = "neutral"
+        mutant.intent = None
+        mutant.intent_commitment = 0.0
+        mutant.goals = [{"type":"explore", "priority":1.5, "target":None, "age":0, "persistence":40}]
+        mutant.last_intent_switch_age = mutant.age
+        mutant._log_event("anti_conformist_injected", t=t)
+        if Config.VERBOSE_LOGS and t % 200 == 0:
+            print(f"[t={t}] ANTI-CONFORMIST: Pattern {mutant.id} turned explorer (age={mutant.age})")
+
+    def force_diversification(self, patterns, field, t):
+        alive = [p for p in patterns if p.alive and p.role_type == "normal"]
+        if len(alive) < 10: return
+        intent_counts = {}
+        for p in alive:
+            if p.intent: intent_counts[p.intent["type"]] = intent_counts.get(p.intent["type"], 0) + 1
+        if not intent_counts: return
+        dominant_intent = max(intent_counts, key=intent_counts.get)
+        dominant_pct = intent_counts[dominant_intent] / len(alive)
+        if dominant_pct > Config.DIVERSIFICATION_THRESHOLD:
+            candidates = [p for p in alive if p.intent and p.intent["type"] == dominant_intent]
+            num_to_diversify = max(1, len(candidates) // 5)
+            for i in range(num_to_diversify):
+                idx = int(phi_hash(t, i, 5555) * len(candidates)) % len(candidates)
+                p = candidates[idx]
+                if dominant_intent == "explore": new_type = "cooperate"
+                elif dominant_intent == "cooperate": new_type = "explore" if phi_hash(t,i,6666)<0.5 else "seek_help"
+                elif dominant_intent == "seek_help": new_type = "explore" if phi_hash(t,i,6666)<0.7 else "cooperate"
+                else: new_type = "explore"
+                priority = 1.0 + 0.5 * phi_hash(t, i, 7777)
+                p.goals = [{"type": new_type, "priority": priority, "target": None, "age": 0, "persistence": 50}]
+                p.intent = p.goals[0]; p.intent_commitment = priority; p.last_intent_switch_age = p.age
+                p._log_event("forced_diversification", old=dominant_intent, new=new_type, t=t)
+                p.emotional_memory['grief'] *= 0.8; p.emotional_memory['gratitude'] *= 0.9
+                if Config.VERBOSE_LOGS and i == 0:
+                    print(f"[t={t}] DIVERSIFICATION: {num_to_diversify} patterns switched from {dominant_intent} -> {new_type}")
+
+    def apply_global_given_queue(self, patterns, field, t):
+        candidates = []
+        for p in patterns:
+            if not p.alive or p.age < Config.GIVEN_MIN_AGE or p.given_cooldown > 0 or p.confidence >= Config.GIVEN_MAX_CONFIDENCE_FOR_CANDIDATE: continue
+            candidates.append((p.cognitive_tension - p.confidence, p))
+        if not candidates: return
+        candidates.sort(key=lambda x: x[0], reverse=True)
+        for i, (_, p) in enumerate(candidates[:Config.GIVEN_GLOBAL_PRIORITY_COUNT]):
+            p.apply_given_operator(field, forced=p.cognitive_tension > Config.GIVEN_TENSION_TRIGGER)
+            if Config.VERBOSE_LOGS and i == 0 and t % 100 == 0:
+                print(f"[t={t}] GLOBAL GIVEN: Pattern {p.id} got 'Given' (tension={p.cognitive_tension:.3f}, conf={p.confidence:.3f})")
+
+
+# =========================
+# SEMANTIC & TRUST
+# =========================
+@dataclass
+class SemanticSignal:
+    channel: int; strength: float; sender_id: int; sender_context: str
+    sender_arc: str | None; sender_age: int; sender_concept_wisdom: float
+    sender_lineage: int; _sender_concept_graph: object
+
+class TrustLedger:
+    def __init__(self): self.entries: dict[int, float] = {}
+    def update(self, sender_id: int, outcome: str):
+        current = self.entries.get(sender_id, Config.TRUST_BASE)
+        delta = {'helpful': Config.TRUST_DELTA_HELPFUL, 'neutral': Config.TRUST_DELTA_NEUTRAL,
+                 'harmful': Config.TRUST_DELTA_HARMFUL}.get(outcome, 0.0)
+        if outcome == 'helpful' and current > 0.6:
+            delta *= 1.2
+        self.entries[sender_id] = np.clip(current + delta, 0.0, 1.0)
+    def get(self, sender_id: int) -> float:
+        return self.entries.get(sender_id, Config.TRUST_BASE)
+
+def interpret_signal(receiver, signal: SemanticSignal) -> float:
+    base_weight = Config.SIGNAL_BASE_WEIGHTS.get(signal.channel, 0.1)
+    concept_bonus = 0.0; concept_penalty = 0.0
+    if hasattr(receiver, 'concept_graph') and receiver.concept_graph.nodes:
+        signal_key = f"signal_{signal.channel}"
+        if signal_key in receiver.concept_graph.nodes:
+            frequency = receiver.concept_graph.nodes[signal_key].get('frequency', 1)
+            if signal.channel in [16, 18, 21]:
+                concept_bonus = min(0.5, np.log(frequency + 1) * 0.15)
+            elif signal.channel in [12, 17]:
+                concept_penalty = min(0.3, np.log(frequency + 1) * 0.1)
+    trust_factor = 1.0
+    if hasattr(receiver, 'trust_ledger') and signal.sender_id in receiver.trust_ledger.entries:
+        trust_val = receiver.trust_ledger.entries[signal.sender_id]
+        trust_factor = 0.5 + (trust_val * 0.5)
+    effective_weight = base_weight * trust_factor * (1.0 + concept_bonus - concept_penalty)
+    return np.clip(effective_weight, 0.0, 1.0)
+
+
+# =========================
+# ARC & CONCEPT
+# =========================
+SEMANTIC_ARCS = {
+    "trauma_recovery": ["screaming", "seeking_comfort", "grateful_but_cautious", "contentment"],
+    "heroic_explore": ["contentment", "exploring_danger", "neutral", "contentment"],
+    "grief_cycle": ["seeking_comfort", "grateful_but_cautious"],
+    "enlightenment": ["contentment", "contentment", "contentment", "contentment"],
+    "redemption": ["exploring_danger", "seeking_comfort", "grateful_but_cautious", "contentment"],
+}
+ARC_BONUSES = {
+    "trauma_recovery": {"heal_bonus": 0.02, "explore_bias": 0.0},
+    "heroic_explore": {"heal_bonus": 0.0, "explore_bias": 0.3},
+    "grief_cycle": {"heal_bonus": 0.01, "explore_bias": 0.0},
+    "enlightenment": {"heal_bonus": 0.03, "explore_bias": 0.1},
+    "redemption": {"heal_bonus": 0.05, "explore_bias": 0.0},
+}
+
+class ArcTracker:
+    def __init__(self):
+        self.state_history: list[str] = []; self.active_arc: str | None = None
+        self.arc_progress: int = 0; self.completed_arcs: dict[str, int] = {}
+    def update(self, new_state: str) -> str | None:
+        self.state_history.append(new_state)
+        if len(self.state_history) > Config.ARC_HISTORY_LENGTH: self.state_history.pop(0)
+        completed = None
+        for arc_name, sequence in SEMANTIC_ARCS.items():
+            seq_len = len(sequence); tail = self.state_history[-seq_len:]
+            if tail == sequence:
+                completed = arc_name
+                self.completed_arcs[arc_name] = self.completed_arcs.get(arc_name, 0) + 1
+                break
+        self.active_arc = None; self.arc_progress = 0
+        for arc_name, sequence in SEMANTIC_ARCS.items():
+            for length in range(min(4, len(self.state_history)), 0, -1):
+                if self.state_history[-length:] == sequence[:length]:
+                    self.active_arc = arc_name; self.arc_progress = length; break
+            if self.active_arc: break
+        return completed
+    def get_explore_bias(self) -> float:
+        return ARC_BONUSES.get(self.active_arc, {}).get("explore_bias", 0.0) if self.active_arc else 0.0
+    def get_heal_bonus(self) -> float:
+        return ARC_BONUSES.get(self.active_arc, {}).get("heal_bonus", 0.0) if self.active_arc else 0.0
+    def get_wisdom_weight(self) -> float:
+        return min(1.0, sum(self.completed_arcs.values()) / 10.0)
+
+class ConceptGraph:
+    def __init__(self): self.nodes: dict = {}; self.edges: dict = defaultdict(lambda: defaultdict(int)); self._prev_sig = None
+    def update(self, signature: tuple, values: np.ndarray):
+        if signature not in self.nodes: self.nodes[signature] = {"count": 0, "value": np.zeros(4)}
+        self.nodes[signature]["count"] += 1; self.nodes[signature]["value"] += values
+        if self._prev_sig is not None: self.edges[self._prev_sig][signature] += 1
+        self._prev_sig = signature
+    def similarity(self, other: "ConceptGraph") -> float:
+        shared_nodes = set(self.nodes) & set(other.nodes)
+        if not shared_nodes: return 0.0
+        total_self = sum(self.nodes[s]["count"] for s in shared_nodes)
+        total_other = sum(other.nodes[s]["count"] for s in shared_nodes)
+        total_all = sum(n["count"] for n in self.nodes.values()) + sum(n["count"] for n in other.nodes.values())
+        return (total_self + total_other) / max(total_all, 1)
+
+
+# =========================
+# PHENOMENAL REPORT
+# =========================
+class PhenomenalReportGenerator:
+    _TEMPLATES = {
+        "seeking_comfort": [
+            "Острое переживание разрыва (интенсивность {grief:.2f}); цели смещены к поиску опоры...",
+            "Боль ({grief:.2f}) требует свидетеля; душа ({soul:.2f}) ищет утешения...",
+            "Разрыв в ткани опыта: горе ({grief:.2f}) стучится во все двери; благодарность ({grat:.2f}) пока молчит.",
+            "Поиск опоры: интенсивность переживания ({grief:.2f}); напряжение ({tension:.2f}) заставляет двигаться к другим."
+        ],
+        "grateful_but_cautious": [
+            "Глубокая благодарность ({grat:.2f}) с оттенком бдительности (напряжение {tension:.2f})...",
+            "Осторожная признательность ({grat:.2f}); напряжение ({tension:.2f}) удерживает от полного доверия...",
+            "Благодарность ({grat:.2f}) как щит: мир принят, но проверен; горе ({grief:.2f}) отступило, но не забыто."
+        ],
+        "exploring_danger": [
+            "Исследование опасного: тревога ({grief:.2f}) и любопытство (нагрузка {epi_load:.2f}) переплетены...",
+            "На границе известного: душа ({soul:.2f}) напряжена; каждый шаг — ставка на понимание."
+        ],
+        "contentment": [
+            "Покой и удовлетворение: благодарность ({grat:.2f}) наполняет; когерентность модели высока ({coherence:.2f}).",
+            "Тишина внутри: душа ({soul:.2f}) в равновесии; мир принимается без борьбы."
+        ],
+        "screaming": [
+            "КРИК: душа разрывается (soul={soul:.2f}), неразрешённое противоречие ({contra:.2f}); призыв к миру о помощи."
+        ],
+        "dreaming": [
+            "Сон: бессознательное перерабатывает опыт; шрам сна ({scar_dream:.2f}) формируется."
+        ],
+        "neutral": [
+            "Нейтральное состояние: душа ({soul:.2f}) в покое; когерентность: {coherence:.2f}."
+        ],
+        "disorganizer": [
+            "Разрушение вокруг: горе ({grief:.2f}) растёт, но душа ({soul:.2f}) ещё держится...",
+            "Хаос внутри и снаружи: тревога ({grief:.2f}) достигла критической точки; тоска по свету пробивается сквозь тьму.",
+            "Кризис духа: боль ({grief:.2f}) достигла предела, душа истончилась ({soul:.2f}); тоска по свету становится невыносимой."
+        ],
+    }
+    @classmethod
+    def generate(cls, pattern) -> tuple:
+        grat = pattern.emotional_memory['gratitude']; grief_val = pattern.emotional_memory['grief']
+        soul = pattern.soul_weight; tension = pattern.cognitive_tension; coherence = pattern.coherence
+        epi_load = pattern.epistemic_load; contra = pattern.unresolved_contradiction; scar_dream = pattern.scar_dream
+        template_key = "disorganizer" if pattern.role_type == "disorganizer" else (pattern.semantic_state if pattern.semantic_state in cls._TEMPLATES else "neutral")
+        templates = cls._TEMPLATES[template_key]
+        idx = int(phi_hash(pattern.id, pattern.age, 9999) * len(templates)) % len(templates)
+        try: report = templates[idx].format(grat=grat, grief=grief_val, soul=soul, tension=tension, coherence=coherence, epi_load=epi_load, contra=contra, scar_dream=scar_dream)
+        except KeyError: report = templates[idx]
+        state_emotion_align = 0.5
+        if pattern.semantic_state == "seeking_comfort" and grief_val > 0.5: state_emotion_align = 1.0
+        elif pattern.semantic_state == "contentment" and grat > 0.5: state_emotion_align = 1.0
+        elif pattern.semantic_state == "grateful_but_cautious" and grat > 0.3: state_emotion_align = 0.8
+        elif pattern.semantic_state == "exploring_danger" and grief_val > 0.3: state_emotion_align = 0.7
+        elif pattern.semantic_state == "screaming": state_emotion_align = 0.6
+        elif pattern.semantic_state == "dreaming": state_emotion_align = 0.4
+        model_coherence = 1.0 / (1.0 + pattern.self_consistency)
+        experiential_intensity = (grat + grief_val) / 2.0
+        experiential_binding = float(np.clip(0.3 * state_emotion_align + 0.25 * model_coherence + 0.25 * (1.0 - min(tension, 1.0)) + 0.2 * experiential_intensity, 0.0, 1.0))
+        return report, experiential_binding
+
+
+# =========================
+# FIELD CHANNELS
+# =========================
+CH = {
+    'energy': 0, 'flux': 1, 'scar': 2, 'noise': 3, 'vorticity': 4,
+    'owner': 5, 'surprise': 6, 'unknown': 7, 'event': 8, 'btype': 9,
+    'crisis': 10, 'binding': 11,
+    'signal_alarm': 12, 'signal_curiosity': 13, 'signal_warning': 14,
+    'signal_invitation': 15, 'signal_gratitude': 16, 'signal_grief': 17,
+    'intent_cooperate': 18, 'intent_explore': 19, 'intent_rest': 20, 'intent_seek_help': 21,
+    'resonance': 22
+}
+
+print("✅ Cell 1b loaded: Witness, Soul, LayerZero, Trust, Arc, Concept, Report, CH")
