@@ -1,0 +1,317 @@
+# -*- coding: utf-8 -*-
+# =========================
+# 832 v34.01 — Cell 1a: Config & Core Utilities (Simplified Triggers for DRAMA)
+# =========================
+import numpy as np
+from scipy.ndimage import label, find_objects
+from functools import lru_cache
+from collections import defaultdict, deque, Counter
+from dataclasses import dataclass, field
+import warnings, math as m
+
+warnings.filterwarnings('ignore')
+
+@dataclass
+class Config:
+    WORLD_SIZE: int = 104
+    CHANNELS: int = 23
+    STEPS: int = 15000
+    DETERMINISTIC_SEED: int = 777
+    MIN_PATTERNS_GUARANTEED: int = 8
+    OVERPOPULATION_CAP: int = 80
+    MIN_POPULATION_FOR_SPAWN: int = 20
+
+    ENABLE_WITNESS: bool = True
+    ENABLE_DELTA_MODELING_GIVEN: bool = True
+    ENABLE_CULTURAL_MEMORY: bool = True
+    MYTH_POOL_SIZE: int = 100
+    MYTH_INFLUENCE_PROB: float = 0.3
+    MYTH_WHISPER_STRENGTH: float = 0.1
+    ENABLE_LOGOS_OBSERVER: bool = True
+    ENABLE_SEED_OF_LIGHT: bool = True
+    ENABLE_VISUALIZATION: bool = False
+    VERBOSE_LOGS: bool = False
+
+    SOUL_WEIGHT_GAIN_RATE: float = 0.05
+    CONTRADICTION_GAIN_RATE: float = 0.01
+    CONTRADICTION_DECAY_RATE: float = 0.003
+    BODY_MEMORY_DECAY: float = 0.99
+    PRED_ERROR_LEARNING: float = 0.9
+    SELF_SURPRISE_FACTOR: float = 0.05
+    WHISPER_THRESHOLD: float = 0.01
+    INTENT_SWITCH_COOLDOWN: int = 15
+    INTENT_COMMITMENT_DECAY: float = 0.95
+    MAX_GIVEN_PER_STEP: int = 5
+    MAX_UNKNOWN_SPAWN_PER_STEP: int = 3
+    MIN_COMPONENT_CELLS: int = 3
+    COMPETITION_MAX_DISTANCE: int = 10
+    EMOTIONAL_DECAY_RATE_BASE: float = 0.998
+    ANTI_CONFORMIST_INTERVAL: int = 200
+    MIN_AGE_FOR_ANTI_CONFORMIST: int = 20
+    PRED_ERROR_THRESHOLD: float = 0.75
+    GIVEN_CONFIDENCE_THRESHOLD: float = 0.7
+    GIVEN_CONSISTENCY_THRESHOLD: float = 0.7
+    EMOTIONAL_CAP_RATE: float = 0.002
+    MAX_GRIEF_SIGNAL: float = 0.7
+    DIVERSIFICATION_THRESHOLD: float = 0.90
+    CRISIS_MEMORY_THRESHOLD: float = 0.2
+    EPISTEMIC_HEALING_RATE: float = 0.99
+    YOUNG_PROTECTION_AGE: int = 20
+    YOUNG_PROTECTION_SOUL: float = 0.4
+    YOUNG_SURVIVAL_CHANCE: float = 0.7
+    GIVEN_TENSION_TRIGGER: float = 0.6
+    GIVEN_INTUITION_PROB: float = 0.005
+    GIVEN_INTUITION_MIN_AGE: int = 30
+    WISDOM_AGE: int = 200
+    WISDOM_COHERENCE_MIN: float = 0.8
+    WISDOM_HEALING_RATE: float = 0.999
+    EXPLORE_GRIEF_REDUCTION: float = 0.99
+    HEALING_GRATITUDE_MIN: float = 0.5
+    GIVEN_ROTATION_INTERVAL: int = 50
+    GIVEN_VETERAN_AGE: int = 100
+    GIVEN_GLOBAL_PRIORITY_COUNT: int = 5
+    GIVEN_MAX_CONFIDENCE_FOR_CANDIDATE: float = 0.7
+    EPISTEMIC_SCAR_MIN: float = 0.3
+    VETERAN_HEALING_RATE: float = 0.9995
+    VETERAN_AGE_FOR_HEALING: int = 300
+    ENLIGHTENED_AGE: int = 400
+    ENLIGHTENED_COHERENCE_MIN: float = 0.75
+    ENLIGHTENED_GRATITUDE_MIN: float = 0.8
+    ENLIGHTENED_HEALING_RATE: float = 0.9998
+    ENLIGHTENED_SCAR_THRESHOLD: float = 0.5
+    ENLIGHTENED_COHERENCE_FLEX: float = 0.3
+    ENLIGHTENED_COHERENCE_FLOOR: float = 0.6
+    ENLIGHTENED_COHERENCE_FLOOR_FLEX: float = 0.85
+    EXPLORE_FATIGUE_INTERVAL: int = 25
+    EXPLORE_FATIGUE_AMOUNT: float = 0.015
+    INTENT_SWITCH_GRATITUDE_BOOST: float = 0.015
+    HEALTHY_SWITCH_OLD_INTENT: str = "explore"
+    HEALTHY_SWITCH_NEW_INTENTS = ["cooperate", "seek_help", "rest"]
+    INTENT_SWITCH_REWARD_INSTANT: bool = True
+    GIVEN_SCAR_COST: float = 0.06
+    SCAR_HEAL_CAP_PER_STEP: float = 0.25
+    STAGNATION_GRIEF_THRESHOLD: int = 100
+    STAGNATION_GRIEF_BOOST: float = 0.003
+    HEAL_WISDOM_AGE: int = 50
+    HEAL_VETERAN_AGE: int = 100
+    HEAL_ENLIGHTENED_AGE: int = 150
+    HEAL_WISDOM_BONUS: float = 0.025
+    HEAL_VETERAN_BONUS: float = 0.035
+    HEAL_ENLIGHTENED_BONUS: float = 0.040
+    ARC_HISTORY_LENGTH: int = 8
+    CONTENTMENT_TENSION_MAX: float = 0.5
+    CONTENTMENT_MIN_AGE: int = 20
+    ARC_GRIEF_FORCE_THRESHOLD: float = 0.7
+    ARC_GRIEF_FORCE_HEAL: float = 0.02
+    STAGNATION_BLEED_RATE: float = 0.005
+    FOLD_STAGNATION_AGE: int = 200
+    FOLD_GRATITUDE_MIN: float = 0.95
+    FOLD_GRIEF_BOOST: float = 0.15
+    FOLD_CRISIS_SPIKE: float = 0.3
+    FOLD_SCAR_RELEASE: float = 0.05
+    FOLD_GRATITUDE_RESET: float = 0.35
+    FOLD_COOLDOWN_DURATION: int = 50
+    ARC_COMPLETION_PRED_ERROR_REDUCTION: float = 0.95
+    DIVIDE_MAX_THRESHOLD: float = 0.72
+    DIVIDE_MIN_SOUL: float = 0.65
+    DIVIDE_MIN_AGE: int = 80
+    DIVIDE_MIN_CELLS_MULT: int = 3
+    DIVIDE_COOLDOWN: int = 50
+    DIVIDE_MIN_FITNESS: float = 0.5
+    ARC_DIVIDE_BONUS: float = 1.2
+    POPULATION_HUNGER_THRESHOLD: int = 60
+    HUNGER_BASE: float = 1.8
+    HUNGER_PER_PATTERN: float = 0.05
+    TRUST_SIGNAL_STRENGTH: float = 0.4
+    TRUST_HELPFUL_THRESHOLD: float = 0.6
+    TRUST_HARMFUL_THRESHOLD: float = 0.35
+    TRUST_UPDATE_LEARNING_RATE: float = 0.15
+    TRUST_BASE: float = 0.5
+    TRUST_LINEAGE_BASE: float = 0.6
+    TRUST_DELTA_HELPFUL: float = 0.10
+    TRUST_DELTA_NEUTRAL: float = 0.0
+    TRUST_DELTA_HARMFUL: float = -0.01
+    TRUST_COOPERATION_BONUS: float = 0.92
+    TRUST_GRATITUDE_AMPLIFY: float = 1.3
+
+    SIGNAL_BASE_WEIGHTS: dict = field(default_factory=lambda: {
+        12: 0.4, 13: 0.1, 14: 0.35, 15: 0.15,
+        16: 0.2, 17: 0.3, 18: 0.25, 19: 0.05, 21: 0.4,
+    })
+
+    # ========== УПРОЩЁННЫЕ ТРИГГЕРЫ (ДРАМА) ==========
+    FOLDS_TO_BECOME_DISORGANIZER: int = 2          # было 3
+    TARGET_DISORGANIZER_FRACTION: float = 0.25     # было 0.2
+    MAX_DISORGANIZER_COUNT: int = 30               # было 20
+    DISORGANIZER_ATTRACTION_STRENGTH: float = 0.5
+    DISORGANIZER_LIFESPAN: int = 1800              # было 3000
+    DISORGANIZER_SOUL_DECAY_STEPS: int = 60        # было 80
+    DISORGANIZER_SOUL_DECAY: float = 0.12
+    DISORGANIZER_GRIEF_AURA: float = 0.008         # было 0.005
+    DISORGANIZER_ALARM_STRENGTH: float = 0.3
+    DISORGANIZER_GRIEF_STRENGTH: float = 0.2
+    REDEMPTION_TIMER: int = 500                   # было 1200
+    ECHO_MUTATION_PROB: float = 0.15
+    ECHO_MUTATION_STRENGTH: float = 0.05
+    QUARANTINE_SCAR_THRESHOLD: float = 0.7        # было 0.9
+    QUARANTINE_SILENCE_STEPS: int = 30
+    REDEMPTION_GRIEF_RESET: float = 0.3
+    REDEMPTION_GRATITUDE_RESET: float = 0.5
+    BINDING_FLOOR: float = 0.03
+    BODY_MEMORY_FLOOR: float = 0.01
+    DETERMINISTIC_REDEMPTION_SOUL: float = 0.32
+    DETERMINISTIC_REDEMPTION_GRIEF: float = 0.70
+    DISORGANIZER_GRIEF_GROWTH: float = 0.008      # было 0.003
+    DISORGANIZER_GRIEF_DECAY: float = 0.005
+    FORCED_SOUL_COLLAPSE_AGE: int = 250           # было 400
+    FORCED_SOUL_COLLAPSE_VALUE: float = 0.3
+    FORCED_SOUL_COLLAPSE_GRIEF_BOOST: float = 0.75
+    REDEMPTION_ARC_STEP_DELAY: int = 200
+    REDEMPTION_ARC_SOUL_LOCK: float = 0.25        # было 0.3
+    MODELING_GIVEN_ERROR_THRESHOLD: float = 0.25
+    MODELING_GIVEN_PENALTY: float = 0.08
+    PHI: float = 1.618033988749895
+    OPERATOR_SCAR_IMPACT: float = 0.02
+    OPERATOR_MEMORY_DECAY: float = 0.995
+    OPERATOR_SIGNAL_STRENGTH: float = 0.03
+    OPERATOR_SIGNAL_DECAY: float = 0.95
+    OPERATOR_SOUL_WHISPER: float = 0.005
+    LINEAGE_RARITY_BOOST: float = 0.25
+    LINEAGE_DOMINANCE_PENALTY: float = 0.25
+    ECHO_DECAY_STRENGTH: float = 0.02
+    ECHO_INJECTION_COOLDOWN: int = 15
+    GRATITUDE_COOPERATION_BONUS: float = 0.08
+    GRIEF_SOUL_IMPACT: float = 0.015
+    ANTI_COHERENCE_THRESHOLD: float = 0.98
+    ANTI_COHERENCE_SHAKE: float = 0.005
+    EMOTIONAL_MEMORY_DECAY: float = 0.9
+    EMOTIONAL_CONTAGION_FACTOR: float = 0.1
+    EMOTIONAL_INDIVIDUALITY: float = 0.5
+    GRATITUDE_AGGRESSION_REDUCTION: float = 0.5
+    GRIEF_METABOLIC_PENALTY: float = 0.5
+    EMOTIONAL_GRATITUDE_THRESHOLD: float = 0.3
+    EMOTIONAL_GRIEF_THRESHOLD: float = 0.3
+    EMOTIONAL_MUTATION_STRENGTH: float = 0.05
+    EMERGENCY_DIVERSIFICATION_PROB: float = 0.03
+    EMOTIONAL_SPECIATION_THRESHOLD: float = 0.5
+    EMOTIONAL_SPECIATION_PROB: float = 0.05
+    SPECIATION_COOLDOWN: int = 20
+    SPECIATION_MIN_AGE: int = 30
+    SCREAM_CRISIS_THRESHOLD: float = 0.7
+    SCREAM_SOUL_THRESHOLD: float = 0.3
+    SCREAM_PROB: float = 0.15
+    SCREAM_SCAR_IMPACT: float = 0.25
+    SCREAM_BINDING_BOOST: float = 0.5
+    SCREAM_ENERGY_PENALTY: float = 0.2
+    EMOTIONAL_RADIATION_STRENGTH: float = 0.05
+    FIELD_DECAY: float = 0.998
+    SCAR_SATURATION: float = 5.0
+    AGENT_INFLUENCE: float = 0.005
+    INVARIANT_REINFORCE: float = 0.02
+    HEARTBEAT_AMPLITUDE: float = 0.025
+    HEARTBEAT_FREQ: float = 0.03
+    SCAR_ENERGY_COUPLING: float = 0.01
+    VORTICITY_COUPLING: float = 0.005
+    GRADIENT_SENSITIVITY: float = 0.2
+    AGENT_SCAR_SENSE: float = 0.02
+    AGENT_BINDING_SENSE: float = 0.01
+    GLOBAL_VISCOSITY: float = 0.999
+    LOCAL_FATIGUE: float = 0.001
+    VORTICITY_DECAY: float = 0.995
+    PATTERN_ENERGY_THRESHOLD: float = 0.08
+    DIVIDE_MIN_SIZE: int = 5
+    MUTATION_STRENGTH_BASE: float = 0.1
+    DIVIDE_ERROR_THRESHOLD: float = 0.08
+    MODEL_LEARNING_RATE: float = 0.1
+    MODEL_GAP_FLOOR: float = 0.15
+    SURPRISE_DECAY: float = 0.95
+    MAX_LINEAGES: int = 5
+    LINEAGE_SELECTION_INTERVAL: int = 10
+    LINEAGE_MIN_AGE: int = 15
+    DIVERSITY_NOISE: float = 0.0005
+    CRISIS_PERIOD: int = 120
+    CRISIS_INTENSITY: float = 0.08
+    PHASE_TENSION_THRESHOLD_LOW_BASE: float = 0.002
+    PHASE_TENSION_THRESHOLD_MID_BASE: float = 0.005
+    PHASE_TENSION_THRESHOLD_HIGH_BASE: float = 0.015
+    PHASE_UNKNOWN_DELTA_THRESHOLD: float = 0.015
+    PHASE_BELIEF_LAG_THRESHOLD: float = 0.4
+    SELF_MODEL_LEARNING_RATE: float = 0.05
+    UNKNOWN_DECAY: float = 0.995
+    UNKNOWN_BACKGROUND: float = 0.02
+    UNKNOWN_DIVERGENCE_WEIGHT: float = 0.6
+    CRISIS_MEMORY_DECAY: float = 0.90
+    CRISIS_MEMORY_MAX: float = 0.8
+    GIVEN_MODEL_SHAKE: float = 0.5
+    GIVEN_MIN_AGE: int = 10
+    GIVEN_COOLDOWN: int = 15
+    NOVELTY_BONUS_WEIGHT: float = 0.2
+    UNKNOWN_PENALTY_BASE: float = 0.15
+    UNKNOWN_REDUCTION_BONUS: float = 0.1
+    PERFECT_MODEL_PENALTY: float = 0.002
+    GLOBAL_EVENT_COOLDOWN: int = 15
+    OVERPOPULATION_THRESHOLD: int = 50
+    HUNGER_MULTIPLIER: float = 1.8
+    BOREDOM_WINDOW: int = 20
+    BOREDOM_ERR_THRESHOLD: float = 0.015
+    BOREDOM_UNKNOWN_THRESHOLD: float = 0.12
+    BOREDOM_TENSION_THRESHOLD: float = 0.005
+    MIN_PRED_ERROR: float = 0.005
+    MIN_ACTIVE: float = 0.005
+    MAX_METRIC: float = 2.0
+    METRIC_DECAY: float = 0.97
+    BASE_NOISE: float = 0.002
+    COMPLACENCY_CONFIDENCE: float = 0.95
+    COMPLACENCY_TENSION: float = 0.0005
+    COMPLACENCY_THRESHOLD_SCALE: float = 0.7
+    UNKNOWN_SPAWN_THRESHOLD: float = 0.25
+    UNKNOWN_SPAWN_PROB: float = 0.01
+    RESONANCE_DECAY: float = 0.95
+    SOUL_CHECK_INTERVAL: int = 50
+    SOUL_CHECK_NOISE: float = 0.001
+    SOUL_TREMOR_STRENGTH: float = 0.15
+    ENABLE_SPEECH: bool = True
+    SPEAK_COOLDOWN: int = 50
+    SPEAK_THRESHOLD_GRIEF: float = 0.5
+
+
+# =========================
+# UTILITIES
+# =========================
+@lru_cache(maxsize=8192)
+def phi_hash_cached(x: int, y: int, seed: int) -> float:
+    return ((x * Config.PHI + y * Config.PHI**2 + seed * Config.PHI**3) % 1.0)
+
+def phi_hash(x, y, seed=0):
+    if isinstance(x, (int, float)) and isinstance(y, (int, float)):
+        x_q = int(m.floor(x / 10.0) * 10) if abs(int(x)) > 100 else int(x)
+        y_q = int(m.floor(y / 10.0) * 10) if abs(int(y)) > 100 else int(y)
+        return phi_hash_cached(x_q, y_q, int(seed))
+    return ((x * Config.PHI + y * Config.PHI**2 + seed * Config.PHI**3) % 1.0)
+
+def phi_noise(t, x, y, seed=0):
+    return (phi_hash(t + x, y + t, seed) - 0.5) * 0.1
+
+def deterministic_noise(t, x, y, scale=0.01):
+    return phi_noise(t, x, y, Config.DETERMINISTIC_SEED) * scale
+
+def squash(x):
+    if np.isnan(x) or np.isinf(x): return 0.5
+    return np.clip(x / (1.0 + abs(x)), -1.0, 1.0)
+
+def safe_mean(arr, default=0.0):
+    arr = np.asarray(arr); mask = np.isfinite(arr)
+    return float(np.mean(arr[mask])) if np.any(mask) else default
+
+def _emotional_decay_factor(age, base_rate=None):
+    if base_rate is None: base_rate = Config.EMOTIONAL_DECAY_RATE_BASE
+    age_factor = 1.0 - 0.3 * np.tanh(age / 200.0)
+    return base_rate ** age_factor
+
+def _safe_emotional_decay(mem_dict, key, age):
+    val = mem_dict.get(key, 0.0)
+    if not np.isfinite(val): val = 0.0
+    decay = _emotional_decay_factor(age)
+    mem_dict[key] = float(np.clip(val * decay, 0.0, 1.0))
+
+print("✅ Cell 1a loaded: Config + Utilities (DRAMA MODE ENABLED)")
