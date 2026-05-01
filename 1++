@@ -1,0 +1,17 @@
+# === СИЛОВОЕ ВНЕДРЕНИЕ SIGNAL_BASE_WEIGHTS (ОБХОД КЭША COLAB) ===
+# Мы вручную создаем этот атрибут в классе Config, игнорируя dataclass механизмы,
+# чтобы гарантировать его наличие для функции interpret_signal.
+
+Config.SIGNAL_BASE_WEIGHTS = {
+    12: 0.4,   # signal_alarm
+    13: 0.1,   # signal_curiosity
+    14: 0.35,  # signal_warning
+    15: 0.15,  # signal_invitation
+    16: 0.2,   # signal_gratitude
+    17: 0.3,   # signal_grief
+    18: 0.25,  # intent_cooperate
+    19: 0.05,  # intent_explore
+    21: 0.4,   # intent_seek_help
+}
+
+print("🔥 FORCE-INJECTED: Config.SIGNAL_BASE_WEIGHTS is now active in memory.")
