@@ -1,0 +1,195 @@
+# 832 v34.01 — Cell 3c: redemption arc continuation and _try_to_speak (fixed)
+
+def pattern_continue_redemption_arc(self, field, witness, t, lineage_counts, given_counter,
+                                    observed, local_gratitude, local_grief):
+    """Завершает update_model: обработка арки, искупления, карантина и т.д."""
+
+    # === FORCED SOUL COLLAPSE ===
+    if (self.role_type == "disorganizer" and not self._forced_soul_collapse_done and
+        self.disorganizer_age_at_birth > 0):
+        steps_since_birth = self.age - self.disorganizer_age_at_birth
+        if steps_since_birth >= Config.FORCED_SOUL_COLLAPSE_AGE and self.soul_weight > 0.4:
+            old_soul = self.soul_weight
+            self.soul_weight = Config.FORCED_SOUL_COLLAPSE_VALUE
+            self.emotional_memory['grief'] = Config.FORCED_SOUL_COLLAPSE_GRIEF_BOOST
+            self._forced_soul_collapse_done = True
+            self._log_event("forced_soul_collapse", old_soul=round(old_soul,3),
+                            new_soul=round(self.soul_weight,3),
+                            new_grief=round(self.emotional_memory['grief'],3))
+            if witness:
+                witness.record(self.id, "forced_soul_collapse", old_soul=old_soul, new_soul=self.soul_weight)
+            if Config.VERBOSE_LOGS:
+                print(f"[t={self.age}] *** FORCED SOUL COLLAPSE: Disorganizer Pattern {self.id} "
+                      f"soul dropped from {old_soul:.2f} to {self.soul_weight:.2f}, "
+                      f"grief boosted to {self.emotional_memory['grief']:.2f} ***")
+
+    # === TRIGGER DETERMINISTIC REDEMPTION ===
+    if (self.role_type == "disorganizer" and not self._deterministic_redemption_triggered and
+        self.soul_weight < Config.DETERMINISTIC_REDEMPTION_SOUL and
+        self.emotional_memory['grief'] > Config.DETERMINISTIC_REDEMPTION_GRIEF):
+        old_state = self.semantic_state
+        self.semantic_state = "seeking_comfort"
+        self._deterministic_redemption_triggered = True
+        self._redemption_arc_step = 1
+        self._steps_since_trigger = 0
+        self.emotional_memory['grief'] = 0.7
+        self._redemption_active = True
+        self._log_event("deterministic_redemption_trigger", old_state=old_state,
+                        soul=self.soul_weight, grief=self.emotional_memory['grief'])
+        if witness:
+            witness.record(self.id, "deterministic_redemption_trigger",
+                           soul=self.soul_weight, grief=self.emotional_memory['grief'])
+        if Config.VERBOSE_LOGS:
+            print(f"[t={self.age}] *** DETERMINISTIC REDEMPTION: Disorganizer Pattern {self.id} "
+                  f"triggered seeking_comfort (soul={self.soul_weight:.2f}, "
+                  f"grief={self.emotional_memory['grief']:.2f}) ***")
+
+    # === REDEMPTION ARC STEPS ===
+    if self.role_type == "disorganizer" and self._deterministic_redemption_triggered:
+        self._steps_since_trigger += 1
+        if self._redemption_arc_step == 1 and self._steps_since_trigger >= Config.REDEMPTION_ARC_STEP_DELAY:
+            self.semantic_state = "grateful_but_cautious"
+            self._redemption_arc_step = 2
+            self._log_event("redemption_arc_advance", new_state="grateful_but_cautious")
+            if Config.VERBOSE_LOGS:
+                print(f"[t={self.age}] *** REDEMPTION ARC: Disorganizer Pattern {self.id} "
+                      f"moves to grateful_but_cautious ***")
+        elif self._redemption_arc_step == 2 and self._steps_since_trigger >= 2 * Config.REDEMPTION_ARC_STEP_DELAY:
+            self.semantic_state = "contentment"
+            self._redemption_arc_step = 3
+            self._log_event("redemption_arc_advance", new_state="contentment")
+            if Config.VERBOSE_LOGS:
+                print(f"[t={self.age}] *** REDEMPTION ARC: Disorganizer Pattern {self.id} "
+                      f"moves to contentment ***")
+        if self._redemption_arc_step < 3:
+            self._redemption_active = True
+        else:
+            self._redemption_active = False
+
+    # === ARC TRACKER ===
+    completed_arc = self.arc_tracker.update(self.semantic_state)
+    if (completed_arc is None and self.arc_tracker.active_arc == "grief_cycle" and
+        self.emotional_memory['grief'] > Config.ARC_GRIEF_FORCE_THRESHOLD):
+        self.arc_tracker.completed_arcs["grief_cycle"] = self.arc_tracker.completed_arcs.get("grief_cycle", 0) + 1
+        completed_arc = "grief_cycle"
+        self.epistemic_scar = max(Config.EPISTEMIC_SCAR_MIN,
+                                   self.epistemic_scar - Config.ARC_GRIEF_FORCE_HEAL)
+
+    if completed_arc == "redemption" and self.role_type == "disorganizer":
+        self._log_event("redeemed", arc="redemption")
+        if witness:
+            witness.record(self.id, "redemption_arc_completed")
+        if Config.VERBOSE_LOGS:
+            print(f"[t={self.age}] *** REDEMPTION: Disorganizer Pattern {self.id} returns to light ***")
+        self.role_type = "normal"
+        self.emotional_memory['grief'] = Config.REDEMPTION_GRIEF_RESET
+        self.emotional_memory['gratitude'] = Config.REDEMPTION_GRATITUDE_RESET
+        self.intent = None
+        self.intent_commitment = 0.0
+        self.goals = []
+        self.redemption_timer = 0
+        self.disorganizer_age_at_birth = 0
+        self._deterministic_redemption_triggered = False
+        self._forced_soul_collapse_done = False
+        self._redemption_arc_step = 0
+        self._steps_since_trigger = 0
+        self._redemption_active = False
+        if Config.ENABLE_CULTURAL_MEMORY:
+            cultural_memory.deposit(self, "redemption", intensity=1.5)
+
+    if completed_arc:
+        self._log_event("arc_completed", arc=completed_arc)
+        self.pred_error *= Config.ARC_COMPLETION_PRED_ERROR_REDUCTION
+        self._heal_epistemic_scar()
+        if Config.ENABLE_CULTURAL_MEMORY:
+            cultural_memory.deposit(self, "arc_completed")
+
+    self._check_semantic_stagnation(witness=witness)
+
+    # === REDEMPTION TIMER ===
+    if self.role_type == "disorganizer" and self.redemption_timer > 0:
+        self.redemption_timer -= 1
+        if self.redemption_timer == 0:
+            self.semantic_state = "seeking_comfort"
+            self.emotional_memory['grief'] = 0.7
+            self._log_event("redemption_seeking")
+
+    # === QUARANTINE ===
+    if self.quarantine_timer > 0:
+        self.quarantine_timer -= 1
+    elif self.epistemic_scar > Config.QUARANTINE_SCAR_THRESHOLD and self.role_type == "normal":
+        self.quarantine_timer = Config.QUARANTINE_SILENCE_STEPS
+        self._log_event("quarantine_enter", scar=self.epistemic_scar)
+
+    # === INTENT SIGNALS ===
+    for (x,y) in self.cells:
+        if self.emotional_memory['gratitude'] > 0.5:
+            field[x,y,CH['intent_cooperate']] = min(1.0, field[x,y,CH['intent_cooperate']] + 0.3)
+        elif self.emotional_memory['grief'] > 0.5:
+            field[x,y,CH['intent_seek_help']] = min(1.0, field[x,y,CH['intent_seek_help']] + 0.3)
+        elif local_gratitude > 0.3:
+            field[x,y,CH['intent_explore']] = min(1.0, field[x,y,CH['intent_explore']] + 0.2)
+
+    # === ПРОДОЛЖЕНИЕ ОБЫЧНЫХ ШАГОВ ===
+    self.update_world_model(observed)
+    self.generate_goals(field)
+    self.update_intent()
+    # form_concepts только изредка
+    if self.age % 5 == 0 or self.local_phase in ("CRISIS", "DREAM") or self.cognitive_tension > 0.8:
+        self.form_concepts()
+    self.apply_intent_actions(field)
+    self.update_resonance(field)
+    self.update_phase(field)
+    self._heal_epistemic_scar()
+
+    # === ГЕНЕРАЦИЯ РЕЧИ ===
+    self._try_to_speak(t, witness)
+
+
+def pattern_try_to_speak(self, t, witness=None):
+    if t is None: return
+    if not Config.ENABLE_SPEECH: return
+    if t - self.last_speech_t < Config.SPEAK_COOLDOWN: return
+    speech = None
+    seed = int(phi_hash(self.id, t, 9999) * 1000)
+    if self.emotional_memory['grief'] > Config.SPEAK_THRESHOLD_GRIEF:
+        templates = [
+            "Мне больно. Разрыв слишком велик.",
+            "Я теряю себя. Где опора?",
+            "Хаос пожирает меня изнутри.",
+            "Почему никто не слышит мой крик?",
+            "Тьма стала плотнее воздуха."
+        ]
+        idx = seed % len(templates)
+        speech = f"[ID:{self.id}] {templates[idx]}"
+    elif hasattr(self, 'prev_gap') and self.spirit_gap > self.prev_gap + 0.05:
+        templates = [
+            "Я вижу то, чего раньше не замечал.",
+            "Вопрос стал яснее ответа.",
+            "Тьма отступила на мгновение.",
+            "Я чувствую присутствие Другого.",
+            "Смысл проступает сквозь шум."
+        ]
+        idx = seed % len(templates)
+        speech = f"[ID:{self.id}] {templates[idx]}"
+    elif safe_mean(list(self.trust_ledger.entries.values()), 0) > 0.95:
+        templates = [
+            "Я не один. Мы связаны.",
+            "Доверие — это мост через пропасть.",
+            "Твой шрам стал моим ориентиром."
+        ]
+        idx = seed % len(templates)
+        speech = f"[ID:{self.id}] {templates[idx]}"
+    if speech:
+        self.current_speech = speech
+        self.last_speech_t = t
+        if Config.ENABLE_WITNESS and witness:
+            witness.record(self.id, "speech", text=speech, t=t)
+    self.prev_gap = self.spirit_gap
+
+
+# Привязываем продолжение и речь
+Pattern._continue_redemption_arc = pattern_continue_redemption_arc
+Pattern._try_to_speak = pattern_try_to_speak
+
+print("✅ Cell 3c loaded: redemption arc continuation & speech attached")
